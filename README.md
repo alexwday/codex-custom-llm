@@ -217,12 +217,26 @@ python /full/path/to/codex-custom-llm/codex_wrapper.py "your prompt"
 - Check `~/.codex/config.toml` to verify max_tokens is set
 
 ### Want to See What's Happening?
+
+**Option 1: Real-Time Monitor Dashboard (Recommended)**
+```bash
+python codex_wrapper.py --monitor "your prompt"
+```
+- Opens http://localhost:8888 in your browser
+- Shows live activity, OAuth tokens, config, events
+- Beautiful HTML dashboard with real-time updates
+- See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for details
+
+**Option 2: Verbose Terminal Logging**
 - Set `VERBOSE_MODE=true` in `.env`
 - This will show detailed logging including:
   - OAuth token refresh activity
   - Configuration generation details
   - Environment variables being set
   - Real-time monitoring of wrapper operations
+
+### Codex Stops Mid-Task?
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#codex-stopping-mid-task) for solutions.
 
 ## Development Workflow
 

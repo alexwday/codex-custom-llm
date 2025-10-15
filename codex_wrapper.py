@@ -8,16 +8,21 @@ working directory to Codex so it operates on the correct project.
 
 Usage:
     python codex_wrapper.py [codex arguments...]
+    python codex_wrapper.py --monitor [codex arguments...]  # Enable monitoring dashboard
 
 Example:
     cd /path/to/your/project
     python /path/to/codex_wrapper.py "fix the bug in main.py"
+
+    # With monitoring dashboard
+    python /path/to/codex_wrapper.py --monitor "analyze this codebase"
 
 The wrapper will:
 1. Set up SSL certificates (via rbc_security)
 2. Fetch and refresh OAuth tokens
 3. Configure Codex with custom LLM endpoint
 4. Launch Codex in your current directory
+5. Optional: Start monitoring dashboard at http://localhost:8888
 """
 
 import os
@@ -26,12 +31,14 @@ import subprocess
 import time
 import threading
 import logging
+import webbrowser
 from pathlib import Path
 from dotenv import load_dotenv
 
 # Import our modules
 from oauth_manager import OAuthManager
 from config_generator import generate_codex_config
+from monitor_server import start_monitor_server, monitor_state
 
 # Logging will be configured in __init__ based on VERBOSE_MODE
 logger = logging.getLogger(__name__)
@@ -43,17 +50,19 @@ TOKEN_ENV_VAR = "CUSTOM_LLM_API_KEY"
 class CodexWrapper:
     """Main wrapper class that coordinates SSL, OAuth, and Codex launching."""
 
-    def __init__(self):
+    def __init__(self, enable_monitor=False):
         """Initialize the wrapper and load configuration."""
         # Load environment variables from .env file
         load_dotenv()
 
         self.mock_mode = os.getenv('MOCK_MODE', 'false').lower() == 'true'
         self.verbose_mode = os.getenv('VERBOSE_MODE', 'false').lower() == 'true'
+        self.enable_monitor = enable_monitor
         self.refresh_interval = int(os.getenv('TOKEN_REFRESH_INTERVAL', '900'))  # 15 minutes
         self.oauth_manager = None
         self.refresh_thread = None
         self.stop_refresh = threading.Event()
+        self.monitor_server = None
 
         # Configure logging based on verbose mode
         log_level = logging.DEBUG if self.verbose_mode else logging.INFO
@@ -63,24 +72,43 @@ class CodexWrapper:
             force=True  # Override any existing config
         )
 
-        logger.info(f"Initializing Codex wrapper (mock_mode={self.mock_mode}, verbose_mode={self.verbose_mode})")
+        logger.info(f"Initializing Codex wrapper (mock_mode={self.mock_mode}, verbose_mode={self.verbose_mode}, monitor={self.enable_monitor})")
+
+        if self.enable_monitor:
+            monitor_state.add_event('info', 'Codex wrapper initializing', f'mock_mode={self.mock_mode}')
 
     def setup_ssl_certificates(self):
         """Set up SSL certificates using rbc_security package."""
         if self.mock_mode:
             logger.info("Mock mode: Skipping SSL certificate setup")
+            if self.enable_monitor:
+                monitor_state.add_event('info', 'SSL setup skipped (mock mode)')
             return
 
         try:
             import rbc_security
             logger.info("Setting up SSL certificates via rbc_security...")
+            if self.enable_monitor:
+                monitor_state.add_event('info', 'Setting up SSL certificates')
+
             rbc_security.enable_certs()
             logger.info("SSL certificates configured successfully")
+
+            if self.enable_monitor:
+                monitor_state.add_event('success', 'SSL certificates configured')
+                monitor_state.update_env_vars({
+                    'SSL_CERT_FILE': os.environ.get('SSL_CERT_FILE', 'Not set'),
+                    'REQUESTS_CA_BUNDLE': os.environ.get('REQUESTS_CA_BUNDLE', 'Not set')
+                })
         except ImportError:
             logger.error("rbc_security package not found. Install it or enable MOCK_MODE.")
+            if self.enable_monitor:
+                monitor_state.add_event('error', 'rbc_security not found')
             sys.exit(1)
         except Exception as e:
             logger.error(f"Failed to set up SSL certificates: {e}")
+            if self.enable_monitor:
+                monitor_state.add_event('error', f'SSL setup failed: {e}')
             sys.exit(1)
 
     def setup_oauth(self):
@@ -94,31 +122,62 @@ class CodexWrapper:
 
         # Fetch initial token
         logger.info("Fetching initial OAuth token...")
+        if self.enable_monitor:
+            monitor_state.add_event('info', 'Fetching initial OAuth token')
+
         token = self.oauth_manager.get_token()
 
         if not token:
             logger.error("Failed to obtain OAuth token")
+            if self.enable_monitor:
+                monitor_state.add_event('error', 'Failed to obtain OAuth token')
+                monitor_state.update_oauth_status('Failed')
             sys.exit(1)
 
         # Set token in environment variable
         os.environ[TOKEN_ENV_VAR] = token
         logger.info("OAuth token obtained and set in environment")
 
+        if self.enable_monitor:
+            monitor_state.add_event('success', 'OAuth token obtained')
+            monitor_state.update_oauth_status('Active')
+            monitor_state.update_token_refresh()
+            monitor_state.update_env_vars({
+                'CUSTOM_LLM_API_KEY': token[:20] + '...',
+                'OAUTH_ENDPOINT': os.getenv('OAUTH_ENDPOINT', 'Not set'),
+                'LLM_API_BASE_URL': os.getenv('LLM_API_BASE_URL', 'Not set')
+            })
+
     def start_token_refresh(self):
         """Start background thread to refresh OAuth tokens."""
         def refresh_loop():
             while not self.stop_refresh.wait(self.refresh_interval):
                 logger.info("Refreshing OAuth token...")
+                if self.enable_monitor:
+                    monitor_state.add_event('info', 'Refreshing OAuth token')
+
                 token = self.oauth_manager.get_token()
                 if token:
                     os.environ[TOKEN_ENV_VAR] = token
                     logger.info("OAuth token refreshed successfully")
+                    if self.enable_monitor:
+                        monitor_state.add_event('success', 'OAuth token refreshed')
+                        monitor_state.update_token_refresh()
+                        monitor_state.update_env_vars({
+                            'CUSTOM_LLM_API_KEY': token[:20] + '...',
+                        })
                 else:
                     logger.warning("Failed to refresh OAuth token")
+                    if self.enable_monitor:
+                        monitor_state.add_event('warning', 'Failed to refresh OAuth token')
+                        monitor_state.update_oauth_status('Refresh failed')
 
         self.refresh_thread = threading.Thread(target=refresh_loop, daemon=True)
         self.refresh_thread.start()
         logger.info(f"Token refresh thread started (interval: {self.refresh_interval}s)")
+
+        if self.enable_monitor:
+            monitor_state.add_event('info', f'Token refresh thread started (interval: {self.refresh_interval}s)')
 
     def setup_codex_config(self):
         """Generate Codex configuration file."""
@@ -137,8 +196,15 @@ class CodexWrapper:
         logger.info("Generating Codex configuration...")
         if max_tokens:
             logger.info(f"Setting max_tokens to {max_tokens} for longer responses")
+            if self.enable_monitor:
+                monitor_state.add_event('info', f'Setting max_tokens to {max_tokens}')
+
         generate_codex_config(config_data)
         logger.info("Codex configuration created")
+
+        if self.enable_monitor:
+            monitor_state.add_event('success', 'Codex configuration generated')
+            monitor_state.load_config()
 
     def launch_codex(self, codex_args):
         """
@@ -154,10 +220,17 @@ class CodexWrapper:
 
         if not codex_binary:
             logger.error("Codex CLI not found. Install it with: npm install -g @openai/codex-cli")
+            if self.enable_monitor:
+                monitor_state.add_event('error', 'Codex CLI not found')
             sys.exit(1)
 
         logger.info(f"Launching Codex from directory: {os.getcwd()}")
         logger.info(f"Codex command: {codex_binary} {' '.join(codex_args)}")
+
+        if self.enable_monitor:
+            monitor_state.add_event('info', f'Launching Codex from: {os.getcwd()}')
+            monitor_state.add_event('info', f'Codex command: {" ".join(codex_args)}')
+            monitor_state.update_codex_status('Running')
 
         if self.verbose_mode:
             logger.debug("=" * 60)
@@ -183,14 +256,28 @@ class CodexWrapper:
             # Wait for Codex to complete
             return_code = process.wait()
             logger.info(f"Codex exited with code: {return_code}")
+
+            if self.enable_monitor:
+                if return_code == 0:
+                    monitor_state.add_event('success', f'Codex exited successfully')
+                else:
+                    monitor_state.add_event('warning', f'Codex exited with code: {return_code}')
+                monitor_state.update_codex_status('Stopped')
+
             return return_code
 
         except KeyboardInterrupt:
             logger.info("Received interrupt signal, shutting down...")
+            if self.enable_monitor:
+                monitor_state.add_event('warning', 'Received interrupt signal')
+                monitor_state.update_codex_status('Interrupted')
             process.terminate()
             return 130
         except Exception as e:
             logger.error(f"Failed to launch Codex: {e}")
+            if self.enable_monitor:
+                monitor_state.add_event('error', f'Failed to launch Codex: {e}')
+                monitor_state.update_codex_status('Failed')
             return 1
 
     def _find_codex_binary(self):
@@ -221,6 +308,25 @@ class CodexWrapper:
     def run(self, codex_args):
         """Main entry point - run the complete wrapper flow."""
         try:
+            # Optional: Start monitor server
+            if self.enable_monitor:
+                self.monitor_server = start_monitor_server()
+                print("\n" + "=" * 70)
+                print("  🖥️  MONITOR DASHBOARD: http://localhost:8888")
+                print("=" * 70)
+                print("  Opening dashboard in your browser...")
+                print("  Keep this window open to see real-time activity!")
+                print("=" * 70 + "\n")
+
+                # Open browser
+                time.sleep(0.5)  # Give server time to start
+                try:
+                    webbrowser.open('http://localhost:8888')
+                except:
+                    pass  # If browser open fails, that's okay
+
+                time.sleep(1)  # Let user see the message
+
             # Step 1: Set up SSL certificates
             self.setup_ssl_certificates()
 
@@ -242,27 +348,45 @@ class CodexWrapper:
             if self.refresh_thread:
                 self.refresh_thread.join(timeout=1)
 
+            if self.enable_monitor:
+                monitor_state.add_event('info', 'Wrapper shutting down')
+                print("\n" + "=" * 70)
+                print("  Monitor dashboard still available at: http://localhost:8888")
+                print("  (Press Ctrl+C again to fully exit)")
+                print("=" * 70 + "\n")
+
 
 def main():
     """Main entry point for the script."""
-    # All arguments after the script name are passed to Codex
-    codex_args = sys.argv[1:]
+    # Check for --monitor flag
+    enable_monitor = False
+    codex_args = []
+
+    for arg in sys.argv[1:]:
+        if arg == '--monitor':
+            enable_monitor = True
+        else:
+            codex_args.append(arg)
 
     if not codex_args:
         print("Enterprise Codex CLI Wrapper")
-        print("\nUsage: python codex_wrapper.py [codex arguments...]")
+        print("\nUsage: python codex_wrapper.py [--monitor] [codex arguments...]")
         print("\nThis wrapper will:")
         print("  1. Set up SSL certificates (via rbc_security)")
         print("  2. Manage OAuth token authentication")
         print("  3. Configure Codex for your enterprise LLM endpoint")
         print("  4. Launch Codex in your current directory")
-        print("\nExample:")
+        print("  5. [Optional] Start real-time monitoring dashboard")
+        print("\nOptions:")
+        print("  --monitor    Launch monitoring dashboard at http://localhost:8888")
+        print("\nExamples:")
         print("  cd /path/to/your/project")
         print("  python /path/to/codex_wrapper.py 'help me refactor main.py'")
+        print("  python /path/to/codex_wrapper.py --monitor 'analyze this codebase'")
         print("\nNote: Run this from your project directory, not the wrapper directory!")
         sys.exit(0)
 
-    wrapper = CodexWrapper()
+    wrapper = CodexWrapper(enable_monitor=enable_monitor)
     exit_code = wrapper.run(codex_args)
     sys.exit(exit_code)
 
