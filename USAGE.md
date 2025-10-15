@@ -256,6 +256,58 @@ python /path/to/wrapper/codex_wrapper.py "your command"
 
 ## Advanced Usage
 
+### Verbose Monitoring Mode
+
+**Problem:** You want to see what the wrapper is doing in real-time.
+
+**Solution:** Enable verbose mode to monitor all wrapper activity:
+
+**.env:**
+```bash
+VERBOSE_MODE=true
+```
+
+**What you'll see:**
+- OAuth token fetch and refresh activity
+- Configuration generation details
+- Environment variables being set
+- SSL certificate setup
+- Real-time logging of wrapper operations
+- Token refresh notifications every 15 minutes
+
+**Example output:**
+```
+2025-10-15 15:44:43 - __main__ - INFO - Initializing Codex wrapper (mock_mode=True, verbose_mode=True)
+2025-10-15 15:44:43 - __main__ - INFO - Mock mode: Skipping SSL certificate setup
+2025-10-15 15:44:43 - __main__ - INFO - Fetching initial OAuth token...
+2025-10-15 15:44:43 - oauth_manager - INFO - Mock mode: Using mock OAuth token
+2025-10-15 15:44:43 - __main__ - DEBUG - ============================================================
+2025-10-15 15:44:43 - __main__ - DEBUG - VERBOSE MODE: Monitoring API calls
+2025-10-15 15:44:43 - __main__ - DEBUG - ============================================================
+2025-10-15 15:44:43 - __main__ - DEBUG - Environment variables set:
+2025-10-15 15:44:43 - __main__ - DEBUG -   CUSTOM_LLM_API_KEY: mock_token_for_loca...
+2025-10-15 15:44:43 - __main__ - DEBUG -   Current directory: /Users/you/my-project
+```
+
+### Increasing Max Tokens
+
+**Problem:** Responses are being cut off because your endpoint has a low default limit.
+
+**Solution:** Set MAX_TOKENS to increase response length:
+
+**.env:**
+```bash
+MAX_TOKENS=4096   # or 8192, 16384, etc.
+```
+
+Your model supports up to 256000 input tokens, so you can set this quite high.
+
+**Verify it's working:**
+```bash
+cat ~/.codex/config.toml
+# You should see: max_tokens = 4096
+```
+
 ### Custom Token Refresh Interval
 
 Default is 15 minutes (900 seconds). To change:
@@ -290,16 +342,6 @@ cat ~/.codex/config.toml
 ```
 
 This shows the configuration that Codex is using.
-
-### Running in Verbose Mode
-
-Add logging to see what's happening:
-
-```bash
-# Set log level to DEBUG
-export LOG_LEVEL=DEBUG
-python codex_wrapper.py "your command"
-```
 
 ## Tips and Best Practices
 

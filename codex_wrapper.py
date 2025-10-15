@@ -33,11 +33,7 @@ from dotenv import load_dotenv
 from oauth_manager import OAuthManager
 from config_generator import generate_codex_config
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Logging will be configured in __init__ based on VERBOSE_MODE
 logger = logging.getLogger(__name__)
 
 # Environment variable name for the OAuth token
@@ -53,12 +49,21 @@ class CodexWrapper:
         load_dotenv()
 
         self.mock_mode = os.getenv('MOCK_MODE', 'false').lower() == 'true'
+        self.verbose_mode = os.getenv('VERBOSE_MODE', 'false').lower() == 'true'
         self.refresh_interval = int(os.getenv('TOKEN_REFRESH_INTERVAL', '900'))  # 15 minutes
         self.oauth_manager = None
         self.refresh_thread = None
         self.stop_refresh = threading.Event()
 
-        logger.info(f"Initializing Codex wrapper (mock_mode={self.mock_mode})")
+        # Configure logging based on verbose mode
+        log_level = logging.DEBUG if self.verbose_mode else logging.INFO
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            force=True  # Override any existing config
+        )
+
+        logger.info(f"Initializing Codex wrapper (mock_mode={self.mock_mode}, verbose_mode={self.verbose_mode})")
 
     def setup_ssl_certificates(self):
         """Set up SSL certificates using rbc_security package."""
@@ -117,15 +122,21 @@ class CodexWrapper:
 
     def setup_codex_config(self):
         """Generate Codex configuration file."""
+        max_tokens_str = os.getenv('MAX_TOKENS')
+        max_tokens = int(max_tokens_str) if max_tokens_str else None
+
         config_data = {
             'base_url': os.getenv('LLM_API_BASE_URL'),
             'model_name': os.getenv('LLM_MODEL_NAME', 'gpt-4-internal'),
             'env_key': TOKEN_ENV_VAR,
             'wire_api': os.getenv('WIRE_API', 'chat'),
-            'query_params': os.getenv('QUERY_PARAMS', None)
+            'query_params': os.getenv('QUERY_PARAMS', None),
+            'max_tokens': max_tokens
         }
 
         logger.info("Generating Codex configuration...")
+        if max_tokens:
+            logger.info(f"Setting max_tokens to {max_tokens} for longer responses")
         generate_codex_config(config_data)
         logger.info("Codex configuration created")
 
@@ -147,6 +158,16 @@ class CodexWrapper:
 
         logger.info(f"Launching Codex from directory: {os.getcwd()}")
         logger.info(f"Codex command: {codex_binary} {' '.join(codex_args)}")
+
+        if self.verbose_mode:
+            logger.debug("=" * 60)
+            logger.debug("VERBOSE MODE: Monitoring API calls")
+            logger.debug("=" * 60)
+            logger.debug(f"Environment variables set:")
+            logger.debug(f"  CUSTOM_LLM_API_KEY: {os.environ.get(TOKEN_ENV_VAR, 'NOT SET')[:20]}...")
+            logger.debug(f"  SSL_CERT_FILE: {os.environ.get('SSL_CERT_FILE', 'NOT SET')}")
+            logger.debug(f"  Current directory: {os.getcwd()}")
+            logger.debug("=" * 60)
 
         try:
             # Launch Codex with inherited environment and current working directory

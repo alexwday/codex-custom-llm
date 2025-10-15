@@ -24,6 +24,7 @@ def generate_codex_config(config_data: Dict[str, Any]) -> Path:
             - env_key: Environment variable name for auth token
             - wire_api: 'chat' or 'responses'
             - query_params: Optional query parameters (e.g., 'api-version=2024-01-01')
+            - max_tokens: Optional max tokens for responses
 
     Returns:
         Path to the generated config file
@@ -50,6 +51,7 @@ def generate_codex_config(config_data: Dict[str, Any]) -> Path:
     env_key = config_data['env_key']
     wire_api = config_data['wire_api']
     query_params = config_data.get('query_params')
+    max_tokens = config_data.get('max_tokens')
 
     # Validate wire_api
     if wire_api not in ['chat', 'responses']:
@@ -61,7 +63,8 @@ def generate_codex_config(config_data: Dict[str, Any]) -> Path:
         model_name=model_name,
         env_key=env_key,
         wire_api=wire_api,
-        query_params=query_params
+        query_params=query_params,
+        max_tokens=max_tokens
     )
 
     # Write config file
@@ -77,7 +80,8 @@ def _generate_toml(
     model_name: str,
     env_key: str,
     wire_api: str,
-    query_params: Optional[str] = None
+    query_params: Optional[str] = None,
+    max_tokens: Optional[int] = None
 ) -> str:
     """
     Generate TOML configuration content.
@@ -88,6 +92,7 @@ def _generate_toml(
         env_key: Environment variable name for token
         wire_api: API wire format
         query_params: Optional query parameters
+        max_tokens: Optional max tokens for responses
 
     Returns:
         TOML configuration as string
@@ -109,6 +114,10 @@ def _generate_toml(
         f'env_key = "{env_key}"',
         f'wire_api = "{wire_api}"',
     ]
+
+    # Add max_tokens if provided
+    if max_tokens:
+        lines.append(f'max_tokens = {max_tokens}')
 
     # Add query parameters if provided
     if query_params:

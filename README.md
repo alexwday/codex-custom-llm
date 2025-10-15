@@ -126,11 +126,13 @@ All configuration is done via environment variables (`.env` file):
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `MOCK_MODE` | Enable mock mode for local dev | `true` or `false` |
+| `VERBOSE_MODE` | Enable detailed logging and monitoring | `true` or `false` |
 | `OAUTH_ENDPOINT` | OAuth token endpoint | `https://internal-auth.company.com/oauth/token` |
 | `OAUTH_CLIENT_ID` | OAuth client ID | `codex-cli-client` |
 | `OAUTH_CLIENT_SECRET` | OAuth client secret | `your-secret-here` |
 | `LLM_API_BASE_URL` | Internal LLM API base URL | `https://llm-api.company.com/v1` |
 | `LLM_MODEL_NAME` | Model name for requests | `gpt-4-internal` |
+| `MAX_TOKENS` | Max tokens for responses | `4096` (increase if responses are cut off) |
 | `TOKEN_REFRESH_INTERVAL` | Token refresh interval (seconds) | `900` (15 minutes) |
 
 ## How It Works
@@ -207,6 +209,20 @@ python /full/path/to/codex-custom-llm/codex_wrapper.py "your prompt"
 - Default refresh is 15 minutes (900 seconds)
 - Adjust `TOKEN_REFRESH_INTERVAL` if needed
 - Monitor console logs for refresh activity
+
+### Responses Cut Off / Too Short
+- Your endpoint may have a low default max_tokens limit
+- Set `MAX_TOKENS` in `.env` to a higher value (e.g., 4096, 8192, 16384)
+- Your model supports up to 256000 input tokens
+- Check `~/.codex/config.toml` to verify max_tokens is set
+
+### Want to See What's Happening?
+- Set `VERBOSE_MODE=true` in `.env`
+- This will show detailed logging including:
+  - OAuth token refresh activity
+  - Configuration generation details
+  - Environment variables being set
+  - Real-time monitoring of wrapper operations
 
 ## Development Workflow
 
