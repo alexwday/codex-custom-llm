@@ -580,28 +580,50 @@ class DashboardHandler(BaseHTTPRequestHandler):
             logger.info(f"Setting {TOKEN_ENV_VAR} for Codex")
 
             # Build the command to set env var and run codex
-            codex_cmd = f'cd "{project_dir}" && export {TOKEN_ENV_VAR}="{token}" && codex'
+            # Add error handling and keep terminal open
+            codex_cmd = f'cd "{project_dir}" && export {TOKEN_ENV_VAR}="{token}" && '
+
             if prompt:
-                codex_cmd += f' "{prompt}"'
+                codex_cmd += f'codex "{prompt}"'
+            else:
+                codex_cmd += 'codex'
+
+            # Keep terminal open even on error
+            codex_cmd += ' ; echo ""; echo "Codex finished. Press any key to close..."; read -n 1'
 
             # Detect platform and launch in appropriate terminal
             import platform
             system = platform.system()
 
             if system == 'Darwin':  # macOS
-                # Use osascript to open a new Terminal window
-                terminal_script = f'''
-tell application "Terminal"
-    do script "{codex_cmd}"
-    activate
-end tell
-'''
+                logger.info(f"Executing AppleScript to launch terminal")
+                logger.debug(f"Command: {codex_cmd}")
+
+                # Use AppleScript to open new terminal
+                # Pass command as argument to avoid escaping issues
+                applescript_lines = [
+                    'tell application "Terminal"',
+                    f'    do script {json.dumps(codex_cmd)}',
+                    '    activate',
+                    'end tell'
+                ]
+                terminal_script = '\n'.join(applescript_lines)
+
                 process = subprocess.Popen(
                     ['osascript', '-e', terminal_script],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE
                 )
-                process.wait()
+                stdout, stderr = process.communicate()
+
+                if process.returncode != 0:
+                    error_msg = stderr.decode() if stderr else "Unknown error"
+                    logger.error(f"AppleScript error: {error_msg}")
+                    raise Exception(f"Failed to launch terminal: {error_msg}")
+
+                logger.info("Terminal launched successfully")
+                if stdout:
+                    logger.debug(f"AppleScript output: {stdout.decode()}")
 
             elif system == 'Linux':
                 # Try common Linux terminal emulators
