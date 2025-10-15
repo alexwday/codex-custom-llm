@@ -193,8 +193,19 @@ class CodexWrapper:
         max_tokens_str = os.getenv('MAX_TOKENS')
         max_tokens = int(max_tokens_str) if max_tokens_str else None
 
+        # Check if proxy mode is enabled
+        proxy_mode = os.getenv('PROXY_MODE', 'false').lower() == 'true'
+        if proxy_mode:
+            base_url = 'http://localhost:8889'
+            logger.info("PROXY MODE: Using local proxy at http://localhost:8889")
+            logger.info("Make sure proxy_server.py is running!")
+            if self.enable_monitor:
+                monitor_state.add_event('info', 'Proxy mode enabled', 'Using http://localhost:8889')
+        else:
+            base_url = os.getenv('LLM_API_BASE_URL')
+
         config_data = {
-            'base_url': os.getenv('LLM_API_BASE_URL'),
+            'base_url': base_url,
             'model_name': os.getenv('LLM_MODEL_NAME', 'gpt-4-internal'),
             'env_key': TOKEN_ENV_VAR,
             'wire_api': os.getenv('WIRE_API', 'chat'),
