@@ -52,7 +52,12 @@ def test_dependencies():
     # Check dotenv
     try:
         import dotenv
-        print_check("python-dotenv library", True, f"version {dotenv.__version__}")
+        # python-dotenv doesn't always expose __version__, so just check if it imports
+        try:
+            version = dotenv.__version__
+        except AttributeError:
+            version = "installed"
+        print_check("python-dotenv library", True, f"version {version}")
     except ImportError:
         print_check("python-dotenv library", False, "Not installed")
         all_ok = False
