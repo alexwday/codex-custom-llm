@@ -560,7 +560,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_error(500, str(e))
 
     def launch_codex(self, project_dir: str, prompt: str) -> bool:
-        """Launch Codex CLI in specified directory."""
+        """Launch Codex CLI in specified directory in a new terminal."""
         try:
             # Setup SSL if available
             try:
@@ -573,38 +573,69 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # Generate Codex config
             self.generate_codex_config()
 
-            # Build Codex command
-            codex_cmd = ['codex']
-            if prompt:
-                codex_cmd.append(prompt)
+            # Get OAuth token and set in environment
+            token = oauth_manager.get_token() or 'mock-token'
 
             logger.info(f"Launching Codex in {project_dir}")
-            logger.info(f"Command: {' '.join(codex_cmd)}")
+            logger.info(f"Setting {TOKEN_ENV_VAR} for Codex")
 
-            # Set environment for subprocess
-            env = os.environ.copy()
-            token = oauth_manager.get_token() or 'mock-token'
-            env[TOKEN_ENV_VAR] = token
+            # Build the command to set env var and run codex
+            codex_cmd = f'cd "{project_dir}" && export {TOKEN_ENV_VAR}="{token}" && codex'
+            if prompt:
+                codex_cmd += f' "{prompt}"'
 
-            logger.info(f"Setting {TOKEN_ENV_VAR} for Codex subprocess")
+            # Detect platform and launch in appropriate terminal
+            import platform
+            system = platform.system()
 
-            # Launch subprocess
-            process = subprocess.Popen(
-                codex_cmd,
-                cwd=project_dir,
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+            if system == 'Darwin':  # macOS
+                # Use osascript to open a new Terminal window
+                terminal_script = f'''
+tell application "Terminal"
+    do script "{codex_cmd}"
+    activate
+end tell
+'''
+                process = subprocess.Popen(
+                    ['osascript', '-e', terminal_script],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                process.wait()
 
-            config.codex_process = process
+            elif system == 'Linux':
+                # Try common Linux terminal emulators
+                terminals = [
+                    ['gnome-terminal', '--', 'bash', '-c', codex_cmd],
+                    ['xterm', '-e', f'bash -c "{codex_cmd}"'],
+                    ['konsole', '-e', f'bash -c "{codex_cmd}"'],
+                ]
+
+                launched = False
+                for term_cmd in terminals:
+                    try:
+                        subprocess.Popen(term_cmd)
+                        launched = True
+                        break
+                    except FileNotFoundError:
+                        continue
+
+                if not launched:
+                    raise Exception("No supported terminal emulator found (tried gnome-terminal, xterm, konsole)")
+
+            elif system == 'Windows':
+                # Use cmd.exe on Windows
+                subprocess.Popen(
+                    ['cmd', '/c', 'start', 'cmd', '/k', codex_cmd],
+                    shell=True
+                )
+
+            else:
+                raise Exception(f"Unsupported platform: {system}")
+
             config.codex_working_dir = project_dir
-
-            state.update_codex_status("Running", project_dir)
-            state.add_event('success', f'Codex launched in {project_dir}', f'PID: {process.pid}')
-
-            # Monitor process in background
-            threading.Thread(target=self.monitor_codex_process, args=(process,), daemon=True).start()
+            state.update_codex_status("Launched in new terminal", project_dir)
+            state.add_event('success', f'Codex launched in new terminal', f'Directory: {project_dir}')
 
             return True
 
@@ -613,22 +644,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
             state.add_event('error', 'Failed to launch Codex', str(e))
             state.update_codex_status(f"Error: {str(e)}")
             return False
-
-    def monitor_codex_process(self, process):
-        """Monitor Codex process and log output."""
-        try:
-            stdout, stderr = process.communicate()
-
-            if stdout:
-                logger.info(f"Codex stdout: {stdout.decode()}")
-            if stderr:
-                logger.error(f"Codex stderr: {stderr.decode()}")
-
-            state.update_codex_status("Exited")
-            state.add_event('info', 'Codex process exited', f'Exit code: {process.returncode}')
-
-        except Exception as e:
-            logger.error(f"Error monitoring Codex: {e}")
 
     def generate_codex_config(self):
         """Generate Codex config file."""
