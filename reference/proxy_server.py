@@ -171,6 +171,7 @@ Full Request:
         if HAS_MONITOR:
             try:
                 monitor_state.add_event('info', f'API Request #{request_id}', f'Model: {model}, Tokens: {max_tokens}')
+                monitor_state.add_api_request(request_id, model, len(messages), max_tokens)
             except:
                 pass
 
@@ -291,6 +292,7 @@ Full Response:
                     f'API Response #{request_id} ({elapsed:.1f}s)',
                     f'Finish: {finish_reason}, Tokens: {completion_tokens}'
                 )
+                monitor_state.update_api_response(request_id, finish_reason, prompt_tokens + completion_tokens, elapsed)
             except:
                 pass
 
@@ -323,6 +325,7 @@ Full Response:
         if HAS_MONITOR:
             try:
                 monitor_state.add_event('error', f'API Error #{request_id}', error_msg[:200])
+                monitor_state.update_api_error(request_id, error_msg[:200])
             except:
                 pass
 
@@ -335,11 +338,13 @@ def start_proxy_server(port=8889):
     print("  🔄 LLM API PROXY SERVER")
     print("=" * 80)
     print(f"  Proxy: http://localhost:{port}")
+    print(f"  Monitor: http://localhost:8888")
     print(f"  Real Endpoint: {proxy_config.real_endpoint}")
     print(f"  Log File: {proxy_config.log_file}")
     print("=" * 80)
     print("\n  ✅ Proxy server is running...")
     print("     All API calls will be logged here in real-time.")
+    print("     Open http://localhost:8888 for web dashboard")
     print("     Press Ctrl+C to stop\n")
 
     try:
@@ -351,14 +356,32 @@ def start_proxy_server(port=8889):
 
 if __name__ == '__main__':
     # Setup SSL if needed
-    mock_mode = os.getenv('MOCK_MODE', 'false').lower() == 'true'
-    if not mock_mode:
+    try:
+        import rbc_security
+        print("Setting up SSL certificates...")
+        rbc_security.enable_certs()
+        print("✓ SSL configured\n")
+    except ImportError:
+        print("⚠️  rbc_security not available (OK for local testing)\n")
+
+    # Start monitor server in background if available
+    if HAS_MONITOR:
         try:
-            import rbc_security
-            print("Setting up SSL certificates...")
-            rbc_security.enable_certs()
-            print("✓ SSL configured\n")
-        except ImportError:
-            print("⚠️  rbc_security not available\n")
+            from monitor_server import start_monitor_server
+            import webbrowser
+            import time
+
+            print("Starting monitor dashboard...")
+            start_monitor_server()
+            time.sleep(0.5)
+            print("✓ Monitor dashboard at http://localhost:8888\n")
+
+            # Open in browser
+            try:
+                webbrowser.open('http://localhost:8888')
+            except:
+                pass
+        except Exception as e:
+            print(f"⚠️  Could not start monitor: {e}\n")
 
     start_proxy_server()

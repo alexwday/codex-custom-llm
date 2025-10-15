@@ -39,6 +39,15 @@ class MonitorState:
         self.config_content = None
         self.env_vars = {}
 
+        # API proxy stats
+        self.api_request_count = 0
+        self.api_response_count = 0
+        self.api_error_count = 0
+        self.last_request_time = None
+        self.last_response_time = None
+        self.api_requests = []  # Recent requests
+        self.max_api_requests = 50
+
     def add_event(self, event_type, message, details=None):
         """Add an event to the log."""
         with self.lock:
@@ -54,6 +63,52 @@ class MonitorState:
             if len(self.events) > self.max_events:
                 self.events = self.events[-self.max_events:]
 
+    def add_api_request(self, request_id, model, messages_count, max_tokens):
+        """Add API request info."""
+        with self.lock:
+            self.api_request_count += 1
+            self.last_request_time = datetime.now()
+
+            request_info = {
+                'id': request_id,
+                'timestamp': self.last_request_time.isoformat(),
+                'model': model,
+                'messages_count': messages_count,
+                'max_tokens': max_tokens,
+                'status': 'pending'
+            }
+
+            self.api_requests.append(request_info)
+            if len(self.api_requests) > self.max_api_requests:
+                self.api_requests = self.api_requests[-self.max_api_requests:]
+
+    def update_api_response(self, request_id, finish_reason, tokens_used, elapsed_time):
+        """Update API request with response info."""
+        with self.lock:
+            self.api_response_count += 1
+            self.last_response_time = datetime.now()
+
+            # Find and update the request
+            for req in reversed(self.api_requests):
+                if req['id'] == request_id:
+                    req['status'] = 'success' if finish_reason == 'stop' else 'warning'
+                    req['finish_reason'] = finish_reason
+                    req['tokens_used'] = tokens_used
+                    req['elapsed_time'] = elapsed_time
+                    break
+
+    def update_api_error(self, request_id, error_msg):
+        """Update API request with error."""
+        with self.lock:
+            self.api_error_count += 1
+
+            # Find and update the request
+            for req in reversed(self.api_requests):
+                if req['id'] == request_id:
+                    req['status'] = 'error'
+                    req['error'] = error_msg
+                    break
+
     def get_state(self):
         """Get current state as JSON."""
         with self.lock:
@@ -67,7 +122,13 @@ class MonitorState:
                 'codex_status': self.codex_status,
                 'config_path': self.config_path,
                 'config_content': self.config_content,
-                'env_vars': self.env_vars
+                'env_vars': self.env_vars,
+                'api_request_count': self.api_request_count,
+                'api_response_count': self.api_response_count,
+                'api_error_count': self.api_error_count,
+                'last_request_time': self.last_request_time.isoformat() if self.last_request_time else None,
+                'last_response_time': self.last_response_time.isoformat() if self.last_response_time else None,
+                'api_requests': list(reversed(self.api_requests))  # Most recent first
             }
 
     def update_token_refresh(self):

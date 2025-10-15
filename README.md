@@ -1,272 +1,217 @@
-# Enterprise Codex CLI Integration
+# Codex Proxy Dashboard
 
-Wrapper for OpenAI Codex CLI that integrates with enterprise authentication and SSL requirements.
+A unified control center for running OpenAI's Codex CLI with enterprise LLM endpoints. Everything you need in one Python script with a beautiful web dashboard.
 
-## Overview
+## Features
 
-This wrapper enables Codex CLI to work with internal LLM endpoints that require:
-- Custom SSL certificates (via `rbc_security` package)
-- OAuth2 authentication with 15-minute token expiry
-- Custom base URLs for internal APIs
+- **Integrated API Proxy** - Intercepts and logs all API calls between Codex and your endpoint
+- **OAuth2 Management** - Automatic token fetching and refresh with status display
+- **Real-time Monitoring** - Live dashboard showing all requests, responses, and events
+- **Project Launcher** - Select any project folder and launch Codex with one click
+- **Request/Response Logging** - Complete visibility into API communication
+- **Configuration Display** - See all your settings at a glance
+- **SSL Certificate Support** - Works with enterprise SSL requirements (via rbc_security)
 
-## Architecture
+## Quick Start
+
+1. **Install Dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Configure Environment**
+
+   Create a `.env` file:
+   ```bash
+   # Enterprise settings
+   LLM_API_BASE_URL=https://your-llm-endpoint.com/v1
+   LLM_MODEL_NAME=gpt-4-internal
+   MAX_TOKENS=4096
+
+   OAUTH_ENDPOINT=https://your-oauth-endpoint.com/token
+   OAUTH_CLIENT_ID=your-client-id
+   OAUTH_CLIENT_SECRET=your-client-secret
+
+   # Token refresh interval (seconds)
+   TOKEN_REFRESH_INTERVAL=900
+
+   # For local testing
+   MOCK_MODE=false
+   ```
+
+3. **Run the Dashboard**
+   ```bash
+   python codex_dashboard.py
+   ```
+
+4. **Open Browser**
+
+   The dashboard will automatically open at http://localhost:8888
+
+## Usage
+
+### Dashboard Overview
+
+The dashboard shows:
+- **Status Card**: Uptime, OAuth token status, Codex status
+- **API Statistics**: Request/response counts, errors, timing
+- **Configuration**: All your environment variables and settings
+- **Launch Section**: Enter a project directory and launch Codex
+- **Recent API Requests**: Real-time view of all API calls
+- **Activity Log**: Detailed event log with timestamps
+
+### Launching Codex
+
+1. In the dashboard, enter your project directory path
+2. (Optional) Enter an initial prompt
+3. Click "Launch Codex"
+4. Codex will start in that directory with the proxy configured
+5. All API calls will appear in the dashboard in real-time
+
+### How It Works
 
 ```
-┌─────────────────────────────────────────┐
-│  codex_wrapper.py (Python)              │
-│  ├─ SSL Setup (rbc_security)            │
-│  ├─ OAuth Token Manager (background)    │
-│  ├─ Config Generator                    │
-│  └─ Codex Subprocess Launcher           │
-└──────────────┬──────────────────────────┘
-               │ Inherits environment
-               ▼
-┌─────────────────────────────────────────┐
-│  Codex CLI (Rust binary)                │
-│  ├─ Reads config.toml                   │
-│  ├─ Uses SSL env vars                   │
-│  └─ Reads CUSTOM_LLM_API_KEY            │
-└─────────────────────────────────────────┘
+┌─────────────────┐
+│  Codex CLI      │
+│  (your project) │
+└────────┬────────┘
+         │
+         ↓
+┌─────────────────┐
+│  Dashboard      │ ← http://localhost:8888 (Web UI)
+│  Proxy Server   │ ← http://localhost:8889 (API Proxy)
+└────────┬────────┘
+         │
+         ↓ (with OAuth token)
+┌─────────────────┐
+│  Enterprise     │
+│  LLM Endpoint   │
+└─────────────────┘
+```
+
+The dashboard:
+1. Fetches OAuth tokens automatically
+2. Generates Codex config pointing to the proxy
+3. Launches Codex with the config
+4. Intercepts all API calls through the proxy
+5. Logs everything to the dashboard and log files
+
+### Configuration
+
+All settings are controlled via environment variables in `.env`:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `LLM_API_BASE_URL` | Your LLM endpoint | `https://api.example.com/v1` |
+| `LLM_MODEL_NAME` | Model to use | `gpt-4-internal` |
+| `MAX_TOKENS` | Max tokens per response | `4096` |
+| `OAUTH_ENDPOINT` | OAuth token endpoint | `https://oauth.example.com/token` |
+| `OAUTH_CLIENT_ID` | OAuth client ID | Your client ID |
+| `OAUTH_CLIENT_SECRET` | OAuth client secret | Your secret |
+| `TOKEN_REFRESH_INTERVAL` | Token refresh interval (seconds) | `900` (15 min) |
+| `MOCK_MODE` | Use mock tokens (testing) | `true` or `false` |
+
+### Logs
+
+All API requests and responses are logged to:
+```
+~/.codex/logs/proxy_requests_YYYYMMDD_HHMMSS.log
+```
+
+The log file contains:
+- Full request bodies (model, messages, tokens)
+- Full response bodies (content, finish_reason, usage)
+- Timestamps and request IDs
+- Error messages and warnings
+
+### Mock Mode
+
+For local testing without enterprise dependencies:
+
+```bash
+MOCK_MODE=true
+LLM_API_BASE_URL=https://api.openai.com/v1
+LLM_MODEL_NAME=gpt-4
+```
+
+Mock mode will:
+- Skip OAuth token fetching (use fake token)
+- Skip SSL certificate setup
+- Still run the proxy and dashboard for testing
+
+## Troubleshooting
+
+### "Failed to get OAuth token"
+
+- Check your `OAUTH_ENDPOINT`, `OAUTH_CLIENT_ID`, and `OAUTH_CLIENT_SECRET`
+- Verify network connectivity to the OAuth endpoint
+- Check if SSL certificates are required (install rbc_security)
+
+### "Codex not found"
+
+Make sure Codex CLI is installed:
+```bash
+npm install -g @anthropic-ai/codex
+```
+
+### Response Cut Off
+
+If responses are being truncated, increase `MAX_TOKENS`:
+```bash
+MAX_TOKENS=8192
+```
+
+### Port Already in Use
+
+If ports 8888 or 8889 are in use, edit `codex_dashboard.py`:
+```python
+self.proxy_port = 8889      # Change this
+self.dashboard_port = 8888  # And this
 ```
 
 ## Project Structure
 
 ```
 codex-custom-llm/
-├── codex_wrapper.py          # Main entry point
-├── oauth_manager.py          # Token fetching and refresh logic
-├── config_generator.py       # Codex config.toml generator
-├── .env.example              # Template for configuration
-├── requirements.txt          # Python dependencies
-└── README.md                 # This file
+├── codex_dashboard.py    # Main script (run this)
+├── requirements.txt      # Python dependencies
+├── .env                  # Your configuration
+├── .env.example          # Example configuration
+└── README.md             # This file
 ```
 
-## Development vs Production
+## Enterprise Setup
 
-### Local Development (Personal Computer)
-- Uses mock mode (no rbc_security or OAuth required)
-- Can test the wrapper logic without enterprise dependencies
-- Set `MOCK_MODE=true` in environment
+For work computers with enterprise dependencies:
 
-### Production (Work Computer)
-- Requires `rbc_security` package installed
-- Uses real OAuth endpoint and LLM API
-- Set actual endpoint URLs and credentials in `.env`
-
-## Setup Instructions
-
-### On Personal Computer (Development)
-
-1. **Clone and install dependencies:**
+1. Install rbc_security package (if required):
    ```bash
-   cd codex-custom-llm
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -r requirements.txt
+   pip install rbc_security
    ```
 
-2. **Create .env file:**
+2. The dashboard will automatically:
+   - Enable SSL certificates
+   - Fetch OAuth tokens
+   - Handle token refresh
+   - Configure Codex
+
+3. Just run and go:
    ```bash
-   cp .env.example .env
-   # Edit .env and set MOCK_MODE=true
+   python codex_dashboard.py
    ```
 
-3. **Test locally:**
-   ```bash
-   python codex_wrapper.py --help
-   ```
+## Development
 
-### On Work Computer (Production)
+The dashboard integrates several components:
 
-1. **Pull the repository:**
-   ```bash
-   git pull origin main
-   ```
+- **OAuth Manager**: Handles token fetching and caching
+- **Proxy Server**: Intercepts API calls on port 8889
+- **Dashboard Server**: Serves web UI on port 8888
+- **State Manager**: Thread-safe state sharing
+- **Codex Launcher**: Subprocess management with config generation
 
-2. **Create Python virtual environment:**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate
-   ```
-
-3. **Install dependencies (including rbc_security):**
-   ```bash
-   pip install -r requirements.txt
-   pip install rbc_security  # Your internal package
-   ```
-
-4. **Configure environment:**
-   ```bash
-   cp .env.example .env
-   # Edit .env with actual values:
-   # - OAUTH_ENDPOINT
-   # - OAUTH_CLIENT_ID
-   # - OAUTH_CLIENT_SECRET
-   # - LLM_API_BASE_URL
-   # - LLM_MODEL_NAME
-   # Set MOCK_MODE=false
-   ```
-
-5. **Install Codex CLI:**
-   ```bash
-   npm install -g @openai/codex-cli
-   # OR
-   brew install codex
-   ```
-
-6. **Run the wrapper:**
-   ```bash
-   python codex_wrapper.py
-   ```
-
-## Configuration
-
-All configuration is done via environment variables (`.env` file):
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `MOCK_MODE` | Enable mock mode for local dev | `true` or `false` |
-| `VERBOSE_MODE` | Enable detailed logging and monitoring | `true` or `false` |
-| `OAUTH_ENDPOINT` | OAuth token endpoint | `https://internal-auth.company.com/oauth/token` |
-| `OAUTH_CLIENT_ID` | OAuth client ID | `codex-cli-client` |
-| `OAUTH_CLIENT_SECRET` | OAuth client secret | `your-secret-here` |
-| `LLM_API_BASE_URL` | Internal LLM API base URL | `https://llm-api.company.com/v1` |
-| `LLM_MODEL_NAME` | Model name for requests | `gpt-4-internal` |
-| `MAX_TOKENS` | Max tokens for responses | `4096` (increase if responses are cut off) |
-| `TOKEN_REFRESH_INTERVAL` | Token refresh interval (seconds) | `900` (15 minutes) |
-
-## How It Works
-
-1. **SSL Configuration**: Python wrapper calls `rbc_security.enable_certs()` to set up SSL environment variables
-2. **OAuth Token**: Fetches initial token and starts background refresh thread
-3. **Config Generation**: Creates `~/.codex/config.toml` with custom provider settings
-4. **Subprocess Launch**: Launches Codex CLI as subprocess, inheriting SSL environment
-5. **Token Refresh**: Background thread refreshes token every 15 minutes, updating environment variable
-
-## Working Directory Behavior
-
-**Important**: The wrapper runs Codex in YOUR current working directory, not the wrapper's directory.
-
-This means you should:
-```bash
-# Navigate to YOUR project
-cd /path/to/your/actual/project
-
-# Then call the wrapper (which can be anywhere)
-python /path/to/codex-custom-llm/codex_wrapper.py "refactor the main function"
-```
-
-Codex will operate on files in `/path/to/your/actual/project`, not in the `codex-custom-llm` directory.
-
-### Recommended Usage Patterns
-
-**Option 1: Add wrapper to PATH**
-```bash
-# Add to ~/.bashrc or ~/.zshrc
-export PATH="$PATH:/path/to/codex-custom-llm"
-alias codex="python /path/to/codex-custom-llm/codex_wrapper.py"
-
-# Then use from any project:
-cd ~/my-project
-codex "help me with this code"
-```
-
-**Option 2: Create a shell function**
-```bash
-# Add to ~/.bashrc or ~/.zshrc
-codex() {
-    python /path/to/codex-custom-llm/codex_wrapper.py "$@"
-}
-
-# Then use from any project:
-cd ~/my-project
-codex "analyze the architecture"
-```
-
-**Option 3: Direct invocation**
-```bash
-cd ~/my-project
-python /full/path/to/codex-custom-llm/codex_wrapper.py "your prompt"
-```
-
-## Troubleshooting
-
-### SSL Certificate Errors
-- Ensure `rbc_security` is installed and accessible
-- Check that `enable_certs()` runs before any network calls
-
-### Authentication Failures
-- Verify OAuth credentials in `.env`
-- Check token refresh logs in console output
-- Ensure OAuth endpoint is accessible from your network
-
-### Codex Not Finding Model
-- Verify `LLM_API_BASE_URL` is correct
-- Check that `LLM_MODEL_NAME` matches what your API expects
-- Review generated config at `~/.codex/config.toml`
-
-### Token Expiry
-- Default refresh is 15 minutes (900 seconds)
-- Adjust `TOKEN_REFRESH_INTERVAL` if needed
-- Monitor console logs for refresh activity
-
-### Responses Cut Off / Too Short
-- Your endpoint may have a low default max_tokens limit
-- Set `MAX_TOKENS` in `.env` to a higher value (e.g., 4096, 8192, 16384)
-- Your model supports up to 256000 input tokens
-- Check `~/.codex/config.toml` to verify max_tokens is set
-
-### Want to See What's Happening?
-
-**Option 1: Real-Time Monitor Dashboard (Recommended)**
-```bash
-python codex_wrapper.py --monitor "your prompt"
-```
-- Opens http://localhost:8888 in your browser
-- Shows live activity, OAuth tokens, config, events
-- **Captures Codex CLI errors** - see any errors Codex outputs
-- **Saves error log** to `~/.codex/logs/codex_output_*.log`
-- Beautiful HTML dashboard with real-time updates
-- See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for details
-
-**Option 2: Verbose Terminal Logging**
-- Set `VERBOSE_MODE=true` in `.env`
-- This will show detailed logging including:
-  - OAuth token refresh activity
-  - Configuration generation details
-  - Environment variables being set
-  - Real-time monitoring of wrapper operations
-
-### Codex Stops Mid-Task?
-
-**Use `--monitor` to see Codex errors:**
-```bash
-python codex_wrapper.py --monitor "your prompt"
-```
-
-The monitor will:
-- Capture any errors Codex CLI outputs to stderr
-- Display them in the activity log
-- Save them to a log file at `~/.codex/logs/codex_output_*.log`
-- Show them in your terminal
-
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#codex-stopping-mid-task) for more solutions.
-
-## Development Workflow
-
-1. **Make changes on personal computer**
-2. **Test in mock mode** (`MOCK_MODE=true`)
-3. **Commit and push** to remote repository
-4. **Pull on work computer**
-5. **Test with real endpoints** (`MOCK_MODE=false`)
-
-## Security Notes
-
-- Never commit `.env` file (it's in `.gitignore`)
-- OAuth credentials should be stored securely
-- Tokens are kept in memory only (environment variables)
-- SSL certificates are managed by `rbc_security` package
+All in one script for easy deployment and maintenance.
 
 ## License
 
-Internal use only
+MIT

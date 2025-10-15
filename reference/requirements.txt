@@ -1,0 +1,7 @@
+# Core dependencies
+requests>=2.31.0
+python-dotenv>=1.0.0
+
+# Note: rbc_security is installed separately on work computers
+# It's an internal package not available on PyPI
+# On work computers, run: pip install rbc_security
