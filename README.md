@@ -224,6 +224,8 @@ python codex_wrapper.py --monitor "your prompt"
 ```
 - Opens http://localhost:8888 in your browser
 - Shows live activity, OAuth tokens, config, events
+- **Captures Codex CLI errors** - see any errors Codex outputs
+- **Saves error log** to `~/.codex/logs/codex_output_*.log`
 - Beautiful HTML dashboard with real-time updates
 - See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for details
 
@@ -236,7 +238,19 @@ python codex_wrapper.py --monitor "your prompt"
   - Real-time monitoring of wrapper operations
 
 ### Codex Stops Mid-Task?
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#codex-stopping-mid-task) for solutions.
+
+**Use `--monitor` to see Codex errors:**
+```bash
+python codex_wrapper.py --monitor "your prompt"
+```
+
+The monitor will:
+- Capture any errors Codex CLI outputs to stderr
+- Display them in the activity log
+- Save them to a log file at `~/.codex/logs/codex_output_*.log`
+- Show them in your terminal
+
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#codex-stopping-mid-task) for more solutions.
 
 ## Development Workflow
 

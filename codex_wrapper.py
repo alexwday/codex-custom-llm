@@ -63,6 +63,7 @@ class CodexWrapper:
         self.refresh_thread = None
         self.stop_refresh = threading.Event()
         self.monitor_server = None
+        self.codex_log_file = None
 
         # Configure logging based on verbose mode
         log_level = logging.DEBUG if self.verbose_mode else logging.INFO
@@ -72,10 +73,18 @@ class CodexWrapper:
             force=True  # Override any existing config
         )
 
+        # If monitoring, create log file for Codex output
+        if self.enable_monitor:
+            log_dir = Path.home() / '.codex' / 'logs'
+            log_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            self.codex_log_file = log_dir / f'codex_output_{timestamp}.log'
+
         logger.info(f"Initializing Codex wrapper (mock_mode={self.mock_mode}, verbose_mode={self.verbose_mode}, monitor={self.enable_monitor})")
 
         if self.enable_monitor:
             monitor_state.add_event('info', 'Codex wrapper initializing', f'mock_mode={self.mock_mode}')
+            logger.info(f"Codex output will be logged to: {self.codex_log_file}")
 
     def setup_ssl_certificates(self):
         """Set up SSL certificates using rbc_security package."""
@@ -244,14 +253,56 @@ class CodexWrapper:
 
         try:
             # Launch Codex with inherited environment and current working directory
-            process = subprocess.Popen(
-                [codex_binary] + codex_args,
-                env=os.environ.copy(),  # Inherit all environment variables
-                cwd=os.getcwd(),         # Use current working directory
-                stdout=sys.stdout,
-                stderr=sys.stderr,
-                stdin=sys.stdin
-            )
+            # If monitoring, capture stderr to log errors
+            if self.enable_monitor:
+                process = subprocess.Popen(
+                    [codex_binary] + codex_args,
+                    env=os.environ.copy(),
+                    cwd=os.getcwd(),
+                    stdout=sys.stdout,
+                    stderr=subprocess.PIPE,  # Capture stderr
+                    stdin=sys.stdin,
+                    text=True,
+                    bufsize=1  # Line buffered
+                )
+
+                # Monitor stderr in background thread
+                def log_stderr():
+                    with open(self.codex_log_file, 'w') as log_file:
+                        log_file.write(f"Codex CLI Output Log\n")
+                        log_file.write(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        log_file.write(f"Command: {' '.join([codex_binary] + codex_args)}\n")
+                        log_file.write(f"Working Directory: {os.getcwd()}\n")
+                        log_file.write("=" * 70 + "\n\n")
+
+                        for line in process.stderr:
+                            line = line.strip()
+                            if line:
+                                # Log to file
+                                log_file.write(f"{time.strftime('%H:%M:%S')} | {line}\n")
+                                log_file.flush()
+
+                                # Log to wrapper logs
+                                logger.error(f"CODEX: {line}")
+
+                                # Add to monitor
+                                monitor_state.add_event('error', f'Codex: {line[:100]}')
+
+                                # Print to terminal
+                                print(f"[CODEX ERROR] {line}", file=sys.stderr)
+
+                stderr_thread = threading.Thread(target=log_stderr, daemon=True)
+                stderr_thread.start()
+            else:
+                # Normal mode - pass through all output
+                process = subprocess.Popen(
+                    [codex_binary] + codex_args,
+                    env=os.environ.copy(),
+                    cwd=os.getcwd(),
+                    stdout=sys.stdout,
+                    stderr=sys.stderr,
+                    stdin=sys.stdin
+                )
 
             # Wait for Codex to complete
             return_code = process.wait()
@@ -315,6 +366,8 @@ class CodexWrapper:
                 print("  🖥️  MONITOR DASHBOARD: http://localhost:8888")
                 print("=" * 70)
                 print("  Opening dashboard in your browser...")
+                print("  Codex errors will be logged to:")
+                print(f"    {self.codex_log_file}")
                 print("  Keep this window open to see real-time activity!")
                 print("=" * 70 + "\n")
 
@@ -351,7 +404,9 @@ class CodexWrapper:
             if self.enable_monitor:
                 monitor_state.add_event('info', 'Wrapper shutting down')
                 print("\n" + "=" * 70)
-                print("  Monitor dashboard still available at: http://localhost:8888")
+                print("  Monitor dashboard: http://localhost:8888")
+                if self.codex_log_file and self.codex_log_file.exists():
+                    print(f"  Codex error log: {self.codex_log_file}")
                 print("  (Press Ctrl+C again to fully exit)")
                 print("=" * 70 + "\n")
 
